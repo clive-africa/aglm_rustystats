@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aglm"
+version = "0.1.0"
+description = "Accurate Generalized Linear Model — Python port of the R aglm package"
+readme = "README.md"
+license = { text = "GPL-2.0" }
+
+keywords = [
+    "actuarial",
+    "generalized linear model",
+    "GLM",
+    "regularization",
+    "elastic net",
+    "feature engineering",
+    "insurance",
+    "non-life",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.22",
+    "pandas>=1.4",
+    "scikit-learn>=1.1",
+    "matplotlib>=3.5",
+    "statsmodels>=0.14.6",
+    "rustystats>=0.4.6",
+    "pygam>=0.10.1",
+    "lightgbm>=4.6.0",
+    "catboost>=1.2.10",
+    "cvxpy>=1.7.5",
+    "xgboost>=2.1.4",
+    "flet[all]>=0.28.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-cov",
+]
+
+[project.urls]
+"Original R package" = "https://github.com/kkondo1981/aglm"
+"AGLM paper" = "https://www.institutdesactuaires.com/global/gene/link.php?doc_id=16273&fg=1"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aglm*"]

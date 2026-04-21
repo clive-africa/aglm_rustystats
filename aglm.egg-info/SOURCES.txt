@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+aglm/__init__.py
+aglm/binning.py
+aglm/dummies.py
+aglm/input.py
+aglm/model.py
+aglm/plot.py
+aglm.egg-info/PKG-INFO
+aglm.egg-info/SOURCES.txt
+aglm.egg-info/dependency_links.txt
+aglm.egg-info/requires.txt
+aglm.egg-info/top_level.txt
+tests/test_aglm.py

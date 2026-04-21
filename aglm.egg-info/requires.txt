@@ -1,0 +1,16 @@
+numpy>=1.22
+pandas>=1.4
+scikit-learn>=1.1
+matplotlib>=3.5
+statsmodels>=0.14.6
+rustystats>=0.4.6
+pygam>=0.10.1
+lightgbm>=4.6.0
+catboost>=1.2.10
+cvxpy>=1.7.5
+xgboost>=2.1.4
+flet[all]>=0.28.3
+
+[dev]
+pytest>=7
+pytest-cov
