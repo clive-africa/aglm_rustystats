@@ -11,6 +11,8 @@ Kenji Kondo, Kazuhisa Takahashi, and Hikari Banno.
 
 ---
 
+Still under development. Adding more generic functionality and comparisons to other modelling techniques.
+
 ## What is AGLM?
 
 AGLM is a **regularised GLM** (elastic-net) that automatically enriches the
