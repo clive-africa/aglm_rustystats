@@ -1,10 +1,10 @@
-import pandas as pd
+import polars as pl
 import numpy as np
 import time
 
 
 
-def fit_gam(train: pd.DataFrame, numeric_cols: list[str], categorical_cols: list[str], response_col, exposure_col) -> dict:
+def fit_gam(train: pl.DataFrame, numeric_cols: list[str], categorical_cols: list[str], response_col, exposure_col) -> dict:
     from pygam import PoissonGAM, f, s
     print("\nGAM - PoissonGAM spline + factor terms (pygam) ...", flush=True)
     
@@ -12,14 +12,14 @@ def fit_gam(train: pd.DataFrame, numeric_cols: list[str], categorical_cols: list
 
     cat_maps: dict = {}
 
-    def _gam_mat(df: pd.DataFrame) -> np.ndarray:
-        parts = [df[numeric_cols].values.astype(float)]
+    def _gam_mat(df: pl.DataFrame) -> np.ndarray:
+        parts = [df.select(numeric_cols).to_numpy().astype(float)]
         for col in categorical_cols:
             if col not in cat_maps:
-                cats = sorted(df[col].unique())
+                cats = sorted(df[col].unique().to_list())
                 cat_maps[col] = {c: i for i, c in enumerate(cats)}
             parts.append(
-                np.array([cat_maps[col].get(v, 0) for v in df[col]], float
+                np.array([cat_maps[col].get(v, 0) for v in df[col].to_list()], float
                           ).reshape(-1, 1)
             )
         return np.hstack(parts)
@@ -31,8 +31,8 @@ def fit_gam(train: pd.DataFrame, numeric_cols: list[str], categorical_cols: list
 
     gam = PoissonGAM(terms)
     gam.gridsearch(
-        x, train[response_col].values,
-        weights=train[exposure_col].values,
+        x, train.select(response_col).to_numpy().astype(float),
+        weights=train.select(exposure_col).to_numpy().astype(float),
         progress=False,
     )
 
@@ -49,5 +49,5 @@ def fit_gam(train: pd.DataFrame, numeric_cols: list[str], categorical_cols: list
     return res
 
 
-def predict_gam(m: dict, df: pd.DataFrame) -> np.ndarray:
-    return m["model"].predict(m["gam_mat"](df)) * df[m['exposure_col']].values
+def predict_gam(m: dict, df: pl.DataFrame) -> np.ndarray:
+    return m["model"].predict(m["gam_mat"](df)) * df.select(m['exposure_col']).to_numpy().astype(float)

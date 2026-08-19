@@ -1,9 +1,12 @@
+
+
 import numpy as np
 from sklearn.metrics import roc_auc_score
 import inspect
 from typing import Callable, Any
 import warnings
 import pandas as pd
+import polars as pl
 
 
 from .glm import fit_glm, predict_glm, fit_reg_glm, predict_reg_glm
@@ -20,20 +23,21 @@ from .lasso import fit_derivative_lasso, predict_derivative_lasso
 from .lgbm import fit_lgbm, predict_lgbm
 
 # ---------------------------------------------------------------------------
-# Generic Model Fitting 
+# Generic Model Fitting
 # ---------------------------------------------------------------------------
 
 MODEL_REGISTRY: dict[str, Callable] = {
-    "GLM":        fit_glm,
-    "RegGLM":     fit_reg_glm,
-    "AGLM-Lin":   fit_aglm_linear,
-    "AGLM-Lvar":  fit_aglm_lvar,
-    "GAM":        fit_gam,
-    "GBM":        fit_lgbm,
-    "XGB":        fit_xgb,
-    "CatBoost":   fit_catboost,
+    "GLM": fit_glm,
+    "RegGLM": fit_reg_glm,
+    "AGLM-Lin": fit_aglm_linear,
+    "AGLM-Lvar": fit_aglm_lvar,
+    "GAM": fit_gam,
+    "LGBM": fit_lgbm,
+    "XGB": fit_xgb,
+    "CatBoost": fit_catboost,
     "DerivLasso": fit_derivative_lasso,
 }
+
 
 def call_fit(fn, _used: set[str] | None = None, **kwargs):
     accepted = inspect.signature(fn).parameters
@@ -41,6 +45,7 @@ def call_fit(fn, _used: set[str] | None = None, **kwargs):
     if _used is not None:
         _used.update(filtered)
     return fn(**filtered)
+
 
 def fit_models(models: list[str], **common) -> dict:
     results = {}
@@ -50,49 +55,57 @@ def fit_models(models: list[str], **common) -> dict:
 
     unused = common.keys() - used
     if unused:
-        warnings.warn(f"fit_models: arguments never consumed by any model: {sorted(unused)}")
+        warnings.warn(
+            f"fit_models: arguments never consumed by any model: {sorted(unused)}"
+        )
 
     return results
 
+
 PREDICT_REGISTRY: dict[str, Callable] = {
-    "GLM":        predict_glm,
-    "RegGLM":     predict_reg_glm,
-    "AGLM-Lin":   predict_aglm_linear,
-    "AGLM-Lvar":  predict_aglm_lvar,
-    "GAM":        predict_gam,
-    "GBM":        predict_lgbm,
-    "XGB":        predict_xgb,
-    "CatBoost":   predict_catboost,
+    "GLM": predict_glm,
+    "RegGLM": predict_reg_glm,
+    "AGLM-Lin": predict_aglm_linear,
+    "AGLM-Lvar": predict_aglm_lvar,
+    "GAM": predict_gam,
+    "LGBM": predict_lgbm,
+    "XGB": predict_xgb,
+    "CatBoost": predict_catboost,
     "DerivLasso": predict_derivative_lasso,
 }
+
 
 def make_predict_fns(results: dict) -> dict[str, Callable[[pd.DataFrame], np.ndarray]]:
     predict_fns = {}
     for name, fitted in results.items():
         predict_fn = PREDICT_REGISTRY[name]
-        model = fitted["model"] if isinstance(fitted, dict) and "model" in fitted else fitted
+        model = (
+            fitted["model"]
+            if isinstance(fitted, dict) and "model" in fitted
+            else fitted
+        )
         predict_fns[name] = lambda df, _fn=predict_fn, _model=model: _fn(_model, df)
     return predict_fns
+
 
 # ---------------------------------------------------------------------------
 # Shared utilities
 # ---------------------------------------------------------------------------
 
+
 def _poisson_deviance(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Mean Poisson deviance - 2x convention (matches R GLM / sklearn / paper)."""
-    y  = np.asarray(y_true, float)
+    y = np.asarray(y_true, float)
     mu = np.maximum(np.asarray(y_pred, float), 1e-12)
-    return float(2.0 * np.mean(
-        np.where(y > 0, y * np.log(y / mu), 0.0) - y + mu
-    ))
+    return float(2.0 * np.mean(np.where(y > 0, y * np.log(y / mu), 0.0) - y + mu))
 
 
 def _weighted_gini(y_true, y_pred, exposure):
-    order  = np.argsort(y_pred)
-    y_s    = y_true[order]
-    e_s    = exposure[order]
-    cum_e  = np.cumsum(e_s) / e_s.sum()
-    cum_l  = np.cumsum(y_s * e_s) / (y_s * e_s).sum()
+    order = np.argsort(y_pred)
+    y_s = y_true[order]
+    e_s = exposure[order]
+    cum_e = np.cumsum(e_s) / e_s.sum()
+    cum_l = np.cumsum(y_s * e_s) / (y_s * e_s).sum()
     return float(1 - 2 * np.trapezoid(cum_l, cum_e))
 
 
@@ -110,6 +123,7 @@ def _weighted_median(values: np.ndarray, weights: np.ndarray) -> float:
     cdf = np.cumsum(w_s) / np.sum(w_s)
     return float(v_s[np.searchsorted(cdf, 0.5, side="left")])
 
+
 def compute_metrics(
     name: str,
     y_count: np.ndarray,
@@ -117,11 +131,11 @@ def compute_metrics(
     exposure: np.ndarray,
 ) -> dict:
     """Compute the full suite of comparison metrics for one model."""
-    y   = np.asarray(y_count,       float)
-    mu  = np.maximum(np.asarray(y_pred_count, float), 1e-12)
-    exp = np.asarray(exposure,      float)
+    y = np.asarray(y_count, float)
+    mu = np.maximum(np.asarray(y_pred_count, float), 1e-12)
+    exp = np.asarray(exposure, float)
 
-    freq_true = y  / np.maximum(exp, 1e-9)
+    freq_true = y / np.maximum(exp, 1e-9)
     freq_pred = mu / np.maximum(exp, 1e-9)
 
     dev = _poisson_deviance(y, mu)
@@ -129,45 +143,52 @@ def compute_metrics(
     mae = float(np.mean(np.abs(freq_true - freq_pred)))
 
     binary = (y > 0).astype(int)
-    auc = (float(roc_auc_score(binary, freq_pred))
-           if 0 < binary.sum() < len(binary) else float("nan"))
+    auc = (
+        float(roc_auc_score(binary, freq_pred))
+        if 0 < binary.sum() < len(binary)
+        else float("nan")
+    )
 
     gini = _weighted_gini(y, mu, exp)
 
-    w          = exp / exp.sum()
-    avg_pred   = float(np.sum(freq_pred * w))
-    med_pred   = _weighted_median(freq_pred, w)
+    w = exp / exp.sum()
+    avg_pred = float(np.sum(freq_pred * w))
+    med_pred = _weighted_median(freq_pred, w)
 
     avg_actual = float(np.sum(freq_true * w))
     med_actual = _weighted_median(freq_true, w)
 
     return {
-        "Model":             name,
-        "Poisson Deviance":  dev,
-        "MSE":               mse,
-        "MAE":               mae,
-        "AUC":               auc,
-        "Gini":              gini,
-        "Avg Pred (freq)":   avg_pred,
+        "Model": name,
+        "Poisson Deviance": dev,
+        "MSE": mse,
+        "MAE": mae,
+        "AUC": auc,
+        "Gini": gini,
+        "Avg Pred (freq)": avg_pred,
         "Median Pred (freq)": med_pred,
         "Avg Actual (freq)": avg_actual,
         "Median Actual (freq)": med_actual,
     }
 
+
 def model_metrics(
-    test: pd.DataFrame,
-    predict_fns: dict[str, Callable[[pd.DataFrame], np.ndarray]],
+    test: pl.DataFrame,
+    predict_fns: dict[str, Callable[[pl.DataFrame], np.ndarray]],
     models: list[str],
-    common: dict[str, Any]
+    common: dict[str, Any],
 ) -> list[dict]:
     """Compute metrics for multiple models."""
 
     rows = []
-    for name in models.keys():
-        fn=predict_fns[name]
+    for name in models:
+        fn = predict_fns[name]
         mu = fn(test)
         row = compute_metrics(
-            name, test[common['response_col']].values, mu, test[common['response_col']].values
+            name,
+            test[common["response_col"]].to_numpy(),
+            mu,
+            test[common["response_col"]].to_numpy(),
         )
         rows.append(row)
         print(
@@ -179,4 +200,3 @@ def model_metrics(
         )
 
     return rows
-    
