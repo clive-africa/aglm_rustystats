@@ -59,14 +59,14 @@ plt.rcParams.update({
 # ─── Distribution registry ────────────────────────────────────────────────────
 # name -> (description, factory)
 DIST_REG: Dict[str, tuple] = {
-    "Poisson":         ("Frequency",   lambda: rustystats.Poisson()),
-    "Neg. Binomial":   ("Freq (OD)",   lambda: rustystats.NegativeBinomial()),
-    "Tweedie (p=1.2)": ("Freq / BC",   lambda: rustystats.Tweedie(var_power=1.2)),
-    "Tweedie (p=1.5)": ("BC",          lambda: rustystats.Tweedie(var_power=1.5)),
-    "Tweedie (p=1.8)": ("BC / Sev",    lambda: rustystats.Tweedie(var_power=1.8)),
-    "Gamma":           ("Severity",    lambda: rustystats.Gamma()),
-    "Inv. Gaussian":   ("Sev (HT)",    lambda: rustystats.InverseGaussian()),
-    "Gaussian":        ("Baseline",    lambda: rustystats.Gaussian()),
+    "Poisson":         ("Frequency",   ''),
+    "Neg. Binomial":   ("Freq (OD)",   ''),
+    "Tweedie (p=1.2)": ("Freq / BC",   ''),
+    "Tweedie (p=1.5)": ("BC",          ''),
+    "Tweedie (p=1.8)": ("BC / Sev",    ''),
+    "Gamma":           ("Severity",    ''),
+    "Inv. Gaussian":   ("Sev (HT)",    ''),
+    "Gaussian":        ("Baseline",    ''),
 }
 FREQ_DISTS = ["Poisson", "Neg. Binomial", "Tweedie (p=1.2)"]
 SEV_DISTS  = ["Gamma", "Tweedie (p=1.5)", "Tweedie (p=1.8)", "Inv. Gaussian"]
@@ -1122,4 +1122,4 @@ def main(page: ft.Page):
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    ft.app(target=main)
+    ft.run(target=main)

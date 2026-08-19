@@ -71,7 +71,7 @@ from generate_fremtpl2freq import make_fremtpl2freq
 # Global configuration
 # ---------------------------------------------------------------------------
 
-N_SAMPLE   = 10000     # None = use full OpenML dataset; set e.g. 50_000 for dev
+N_SAMPLE   = None     # None = use full OpenML dataset; set e.g. 50_000 for dev
 NBIN_MAX   = 40       # max bins per numeric variable in the AGLM basis
 N_ALPHAS   = 10       # lambda grid size for cva_aglm
 ALPHA_GRID = np.array([0.0, 0.25, 0.5, 0.75, 1.0])
@@ -80,8 +80,7 @@ CV_FOLDS   = 5
 # Maximum rows passed to the CVXPY-based DerivLasso (solver time scales ~O(n^2))
 DERIV_LASSO_MAX_N = 20_000
 
-NUMERIC_COLS     = ["VehPower", "VehAge", "DrivAge", "BonusMalus", "Density"]
-CATEGORICAL_COLS = ["VehBrand", "VehGas", "Area", "Region"]
+
 FEATURE_COLS     = NUMERIC_COLS + CATEGORICAL_COLS
 
 AGLM_COLS = ["LogExposure"] + FEATURE_COLS
@@ -110,7 +109,7 @@ plt.rcParams.update({
 # Shared utilities
 # ---------------------------------------------------------------------------
 
-def poisson_deviance_eq11(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def _poisson_deviance(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Mean Poisson deviance - 2x convention (matches R GLM / sklearn / paper)."""
     y  = np.asarray(y_true, float)
     mu = np.maximum(np.asarray(y_pred, float), 1e-12)
@@ -156,7 +155,7 @@ def compute_metrics(
     freq_true = y  / np.maximum(exp, 1e-9)
     freq_pred = mu / np.maximum(exp, 1e-9)
 
-    dev = poisson_deviance_eq11(y, mu)
+    dev = _poisson_deviance(y, mu)
     mse = float(np.mean((freq_true - freq_pred) ** 2))
     mae = float(np.mean(np.abs(freq_true - freq_pred)))
 
@@ -211,49 +210,62 @@ def _aglm_features(df: pd.DataFrame) -> pd.DataFrame:
 # Data loading and splitting
 # ---------------------------------------------------------------------------
 
-def load_and_split() -> tuple[pd.DataFrame, pd.DataFrame]:
-    print("Loading freMTPL2freq from OpenML ...")
-    raw = fetch_openml(data_id=41214, as_frame=True, parser="pandas")["data"]
+def load_and_split(
+    df: pd.DataFrame,
+    seed: int | None = 42,
+    sample_size: int | None = None,
+    claim_col: str | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
 
-    for col in ["ClaimNb", "VehPower", "VehAge", "DrivAge", "BonusMalus"]:
-        raw[col] = pd.to_numeric(raw[col], errors="coerce").astype("Int64")
-    for col in ["Exposure", "Density"]:
-        raw[col] = pd.to_numeric(raw[col], errors="coerce")
-    for col in ["VehBrand", "VehGas", "Area", "Region"]:
-        raw[col] = raw[col].astype(str).str.strip()
+    if sample_size is not None:
+        df = df.sample(sample_size, random_state=seed).reset_index(drop=True)
 
-    before = len(raw)
-    raw = raw.dropna(subset=["ClaimNb", "VehPower", "VehAge", "DrivAge",
-                               "BonusMalus", "Exposure", "Density",
-                               "VehBrand", "VehGas", "Area", "Region"])
-    print(f"  Dropped {before - len(raw):,} rows with missing values")
+    if claim_col is not None:
+        strat = (df[claim_col] > 0).astype(int)
+        train, test = train_test_split(
+            df, test_size=0.25, random_state=seed, stratify=strat
+        )
+    else:
+        train, test = train_test_split(df, test_size=0.25, random_state=seed)
 
-    raw["Exposure"] = raw["Exposure"].clip(lower=1e-4)
-    raw["ClaimNb"]  = raw["ClaimNb"].astype(int).clip(upper=4)
-    raw = raw.drop(columns=["IDpol"], errors="ignore")
-
-    if N_SAMPLE:
-        raw = raw.sample(N_SAMPLE, random_state=42).reset_index(drop=True)
-
-    print(f"  Policies: {len(raw):,}")
-    strat = (raw["ClaimNb"] > 0).astype(int)
-    train, test = train_test_split(
-        raw, test_size=0.25, random_state=42, stratify=strat
-    )
     train = train.reset_index(drop=True)
     test  = test.reset_index(drop=True)
-    print(f"  Train {len(train):,} | Test {len(test):,} | "
-          f"claim rate {train['ClaimNb'].mean():.4f}")
+
+    # ── summary table ────────────────────────────────────────────────────────
+    header = f"{'Dataset':<12} {'Records':>10} {'% of Total':>11}"
+    if claim_col is not None:
+        header += f" {'Claim Rate':>12}"
+    sep = "─" * len(header)
+
+    rows = [
+        ("Original", df,    len(df)),
+        ("Train",    train, len(df)),
+        ("Test",     test,  len(df)),
+    ]
+
+    print(sep)
+    print(header)
+    print(sep)
+    for label, subset, total in rows:
+        n   = len(subset)
+        pct = n / total * 100
+        row = f"{label:<12} {n:>10,} {pct:>10.1f}%"
+        if claim_col is not None:
+            cr  = subset[claim_col].mean()
+            row += f" {cr:>11.4f}"
+        print(row)
+    print(sep)
+
     return train, test
+
 
 
 # ---------------------------------------------------------------------------
 # 1/8  GLM - plain Poisson (statsmodels IRLS, proper log-exposure offset)
 # ---------------------------------------------------------------------------
 
-# import rustystats as rs
 
-def fit_glm(train: pd.DataFrame) -> "rs.GLMModel":
+def fit_glm(train: pd.DataFrame, response_col: str, offset_col: str, numeric_cols: List[str], categorical_cols: List[str], family: str ) -> "rs.GLMModel":
     print("\n[1/8] GLM - plain Poisson (rustystats IRLS) ...", flush=True)
     t0 = time.time()
 
@@ -269,6 +281,8 @@ def fit_glm(train: pd.DataFrame) -> "rs.GLMModel":
         weights=None,
         seed=42,
     ).fit()
+
+    t1=time.time()
 
     print(f"  ok {time.time() - t0:.1f}s | deviance = {result.deviance:.4f} | "
           f"converged = {result.converged} | iterations = {result.iterations}")
@@ -606,10 +620,13 @@ def fit_gbm(train: pd.DataFrame) -> lgb.Booster:
     t0      = time.time()
     log_exp = np.log(np.maximum(train["Exposure"].values, 1e-9))
 
+    freq = train["ClaimNb"].values / np.maximum(train["Exposure"].values, 1e-9)
+    w    = train["Exposure"].values
+
     dtrain = lgb.Dataset(
         _lgb_X(train),
-        label=train["ClaimNb"].values,
-        init_score=log_exp,
+        label=freq,
+        weight=w,
         free_raw_data=False,
     )
 
@@ -645,10 +662,8 @@ def fit_gbm(train: pd.DataFrame) -> lgb.Booster:
     return booster
 
 
-def predict_gbm(booster: lgb.Booster, df: pd.DataFrame) -> np.ndarray:
-    log_exp = np.log(np.maximum(df["Exposure"].values, 1e-9))
-    raw     = booster.predict(_lgb_X(df), raw_score=True)
-    return np.exp(raw + log_exp)
+def predict_gbm_weights(booster: lgb.Booster, df: pd.DataFrame) -> np.ndarray:
+    return booster.predict(_lgb_X(df)) * df["Exposure"].values
 
 
 # ---------------------------------------------------------------------------
@@ -1059,7 +1074,7 @@ def fit_derivative_lasso(train: pd.DataFrame) -> dict:
                   exposure=exp_[tr_idx],
                   ordered_groups=ordered_groups)
             fold_devs.append(
-                poisson_deviance_eq11(y[va_idx], m.predict(X[va_idx], exp_[va_idx]))
+                _poisson_deviance(y[va_idx], m.predict(X[va_idx], exp_[va_idx]))
             )
         mean_dev = float(np.mean(fold_devs))
         cv_devs.append(mean_dev)
@@ -1280,12 +1295,18 @@ def plot_calibration(metrics_table: pd.DataFrame) -> plt.Figure:
 # ---------------------------------------------------------------------------
 
 def main(
+    df: pd.DataFrame,
+    categorical_cols: list[str],
+    numeric_cols: list[str],
+    sample_size: int | None = None,
     run_gam: bool = True,
     run_gbm: bool = True,
     run_catboost: bool = True,
     run_xgb: bool = True,
     run_deriv_lasso: bool = True,
 ) -> None:
+    
+    
     print("=" * 70)
     print("Fujita et al. (2020) - Section 5 Numerical Experiments")
     print("  Models: GLM | RegGLM | AGLM-Lin | AGLM-Lvar |")
@@ -1397,7 +1418,32 @@ def main(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    res=main (True, True, True, True, True, True)
+
+    
+    print("Loading freMTPL2freq from OpenML ...")
+    df = fetch_openml(data_id=41214, as_frame=True, parser="pandas")["data"]
+
+    for col in ["ClaimNb", "VehPower", "VehAge", "DrivAge", "BonusMalus"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+    for col in ["Exposure", "Density"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    for col in ["VehBrand", "VehGas", "Area", "Region"]:
+        df[col] = df[col].astype(str).str.strip()
+
+    before = len(df)
+    df = df.dropna(subset=["ClaimNb", "VehPower", "VehAge", "DrivAge",
+                               "BonusMalus", "Exposure", "Density",
+                               "VehBrand", "VehGas", "Area", "Region"])
+    print(f"  Dropped {before - len(raw):,} rows with missing values")
+
+    raw["Exposure"] = raw["Exposure"].clip(lower=1e-4)
+    raw["ClaimNb"]  = raw["ClaimNb"].astype(int).clip(upper=4)
+    raw = raw.drop(columns=["IDpol"], errors="ignore")
+
+    NUMERIC_COLS     = ["VehPower", "VehAge", "DrivAge", "BonusMalus", "Density"]
+    CATEGORICAL_COLS = ["VehBrand", "VehGas", "Area", "Region"]
+
+    res=main (df=raw, categorical_cols=CATEGORICAL_COLS, numeric_cols=NUMERIC_COLS, True, True, True, True, True, True)
     # parser = argparse.ArgumentParser(
     #     description="freMTPL2freq model comparison experiment"
     # )
@@ -1418,3 +1464,51 @@ if __name__ == "__main__":
     #     run_catboost=not args.no_catboost,
     #     run_deriv_lasso=not args.no_deriv_lasso,
     # )
+
+def load_and_split(
+    df: pd.DataFrame,
+    seed: int | None = 42,
+    sample_size: int | None = None,
+    claim_col: str | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+    if sample_size is not None:
+        df = df.sample(sample_size, random_state=seed).reset_index(drop=True)
+
+    if claim_col is not None:
+        strat = (df[claim_col] > 0).astype(int)
+        train, test = train_test_split(
+            df, test_size=0.25, random_state=seed, stratify=strat
+        )
+    else:
+        train, test = train_test_split(df, test_size=0.25, random_state=seed)
+
+    train = train.reset_index(drop=True)
+    test  = test.reset_index(drop=True)
+
+    # ── summary table ────────────────────────────────────────────────────────
+    header = f"{'Dataset':<12} {'Records':>10} {'% of Total':>11}"
+    if claim_col is not None:
+        header += f" {'Claim Rate':>12}"
+    sep = "─" * len(header)
+
+    rows = [
+        ("Original", df,    len(df)),
+        ("Train",    train, len(df)),
+        ("Test",     test,  len(df)),
+    ]
+
+    print(sep)
+    print(header)
+    print(sep)
+    for label, subset, total in rows:
+        n   = len(subset)
+        pct = n / total * 100
+        row = f"{label:<12} {n:>10,} {pct:>10.1f}%"
+        if claim_col is not None:
+            cr  = subset[claim_col].mean()
+            row += f" {cr:>11.4f}"
+        print(row)
+    print(sep)
+
+    return train, test
