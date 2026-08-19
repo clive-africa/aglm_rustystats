@@ -11,6 +11,9 @@ Kenji Kondo, Kazuhisa Takahashi, and Hikari Banno.
 
 ---
 
+## Under Development
+Adding more generic functionality and comparisons to other modelling techniques.
+
 ## What is AGLM?
 
 AGLM is a **regularised GLM** (elastic-net) that automatically enriches the
@@ -161,14 +164,7 @@ The R package uses glmnet's convention:
 λ · [ (1−α)/2 · ‖β‖₂²  +  α · ‖β‖₁ ]
 ```
 
-This is mapped to scikit-learn as follows:
-
-| R glmnet | scikit-learn |
-|----------|-------------|
-| `lambda` | `alpha` (ElasticNet) or `1/C` (LogisticRegression) |
-| `alpha` | `l1_ratio` |
-
----
+This is mapped to rustystats.
 
 ## Running tests
 
@@ -192,15 +188,7 @@ CV model selection, L-variables, and categorical variables.
 
 ## Differences from the R package
 
-| Feature | R package | Python port |
-|---------|-----------|-------------|
-| Backend | `glmnet` (Fortran) | `scikit-learn` ElasticNet / LogisticRegression |
-| Poisson elastic-net | Full EN via glmnet | Ridge only (PoissonRegressor) |
-| Solution path | Full λ path in one call | Single λ or CV search |
-| S4 classes | `AccurateGLM-class` | Python dataclass `AccurateGLM` |
-| Plotting | base R graphics | matplotlib |
-| `cva.aglm` | More efficient path | Sequential `cv_aglm` calls |
-
+#TODO
 ---
 
 ## License
